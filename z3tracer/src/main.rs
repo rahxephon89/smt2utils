@@ -298,7 +298,9 @@ fn main() {
             eprintln!("Writing conflict charts to {}", path.to_str().unwrap_or(""));
 
             let backend = BitMapBackend::new(&path, (1000, 800));
+            //println!("backend");
             let root = backend.into_drawing_area();
+            //println!("root");
             plot_instantiations_with_conflicts(
                 root,
                 &instantiations,

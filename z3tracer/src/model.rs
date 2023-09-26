@@ -1024,6 +1024,7 @@ impl LogVisitor for &mut Model {
                 if let MatchedTerm::Equality(id1, id2) = u {
                     if self.has_log_consistency_checks() && self.check_equality(id1, id2).is_none()
                     {
+                        println!("inst err");
                         return Err(RawError::CannotCheckEquality(id1.clone(), id2.clone()));
                     }
                     self.add_deps_from_term(&mut qi_deps, &mut proof_deps, id1);

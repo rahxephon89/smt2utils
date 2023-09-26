@@ -4,10 +4,11 @@
 use structopt::StructOpt;
 
 use crate::{
-    error::{RawError, RawResult, Result},
+    error::*,
     lexer::Lexer,
     syntax::{Equality, Ident, Literal, Meaning, QiFrame, QiInstance, QiKey, Term, VarName},
 };
+use crate::parser::RawError::UnknownCommand;
 
 // https://github.com/TeXitoi/structopt/issues/333
 #[cfg_attr(not(doc), allow(missing_docs))]
@@ -89,7 +90,31 @@ where
 {
     /// Parse the input.
     pub fn parse(&mut self) -> Result<()> {
-        while self.parse_line().map_err(|e| self.lexer.make_error(e))? {}
+        let mut num = 0;
+        while true {
+            let e = self.parse_line();
+            match e {
+                Err(UnknownCommand(_)) => {
+                    break;
+                },
+                Err(RawError::CannotCheckEquality(_, _)) => {
+                    let lexer = &mut self.lexer;
+                    lexer.skip_spaces();
+                    //lexer.skip_until_new_line();
+                    continue;
+                    //println!("err:{:?}, num:{}", er, num);
+                }
+                _ => {
+                    println!("handling line:{}", num);
+                    num = num + 1;
+                }
+            }
+            //let val = self.parse_line().map_err(|e| self.lexer.make_error(e));
+        }
+        // while self.parse_line().map_err(|e| self.lexer.make_error(e))? {
+        //
+        // }
+        println!("line num:{}", num);
         Ok(())
     }
 
@@ -97,10 +122,14 @@ where
     fn parse_line(&mut self) -> RawResult<bool> {
         let lexer = &mut self.lexer;
         let state = &mut self.state;
-        match lexer.read_string().unwrap().as_ref() {
+        let str = lexer.read_string().unwrap();
+        match str.as_ref() {
             "[mk-app]" => {
+                //println!("begin mk app");
                 let id = lexer.read_fresh_ident()?;
+                //println!("mk app id:{:?}", id);
                 let name = lexer.read_string()?;
+                //println!("mk app name:{}", name);
                 let args = lexer.read_idents()?;
                 let term = Term::App {
                     name,
@@ -176,8 +205,12 @@ where
                 Ok(true)
             }
             "[attach-var-names]" => {
+                //println!("begin handling attach var");
                 let id = lexer.read_ident()?;
+                //println!("end handling attach var");
                 let names = lexer.read_var_names()?;
+                //println!("end names:{:?}", names);
+
                 state.attach_var_names(id, names)?;
                 lexer.read_end_of_line()?;
                 Ok(true)
@@ -303,16 +336,22 @@ where
                 Ok(true)
             }
             "[eof]" => {
-                lexer.read_end_of_line()?;
-                Ok(false)
-            }
-            s if self.config.ignore_invalid_lines && !s.starts_with('[') => {
-                // Ignore lines not starting with '['
-                lexer.read_line()?;
+                //println!("reach eof");
                 lexer.read_end_of_line()?;
                 Ok(true)
             }
-            s => Err(RawError::UnknownCommand(s.to_string())),
+            s if self.config.ignore_invalid_lines => {//&& !s.starts_with('[') => {
+                println!("invalid line:{}", s);
+                lexer.skip_until_new_line();
+                // Ignore lines not starting with '['
+                //lexer.read_line()?;
+                //lexer.read_end_of_line()?;
+                Ok(true)
+            }
+            s => {
+                println!("invalid line:{}", s);
+                Err(RawError::UnknownCommand(s.to_string()))
+            },
         }
     }
 }

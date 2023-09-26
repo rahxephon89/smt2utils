@@ -80,9 +80,13 @@ where
         self.peek_bytes().get(0)
     }
 
-    fn skip_space(&mut self) -> bool {
+    pub fn skip_space(&mut self) -> bool {
         match self.peek_byte() {
             Some(b' ') => {
+                self.consume_byte();
+                true
+            },
+            Some(b'\0') => {
                 self.consume_byte();
                 true
             }
@@ -90,8 +94,27 @@ where
         }
     }
 
-    fn skip_spaces(&mut self) {
+    pub fn skip_spaces(&mut self) {
         while self.skip_space() {}
+    }
+
+    pub fn skip_until_new_line(&mut self) {
+        while true {
+            match self.peek_byte() {
+                Some(b'\n') => {
+                    self.consume_byte();
+                    return;
+                },
+                Some(c) => {
+                    println!("c:{}", *c as char);
+                    self.consume_byte();
+                }
+                _  => {
+                    println!("no byte");
+                    return;
+                }
+            }
+        }
     }
 
     fn read_token(&mut self, token: u8) -> RawResult<()> {
@@ -128,20 +151,33 @@ where
             return Err(RawError::UnexpectedChar(None, vec!['|']));
         }
         // Normal case
+        let mut bal = 0;
         while let Some(c) = self.peek_byte() {
             let c = *c;
-            if c == b' ' {
+            if c == b' ' && bal == 0 {
                 self.consume_byte();
                 self.skip_spaces();
                 break;
             }
-            if c == b'\n' || c == b';' || c == b'(' || c == b')' {
+            if c == b'\n' || c == b';' {
                 break;
+            }
+            if c == b'(' {
+                bal = bal + 1;
+            }
+            if c == b')' {
+                if bal == 0 {
+                    break;
+                } else {
+                    bal = bal - 1;
+                }
             }
             bytes.push(c);
             self.consume_byte();
         }
         let s = String::from_utf8(bytes).map_err(RawError::InvalidUtf8String)?;
+        //println!("s in read_symbol:{}, name:{}", s, Symbol(s.clone()));
+
         Ok(Symbol(s))
     }
 
@@ -165,14 +201,21 @@ where
 
     pub(crate) fn read_string(&mut self) -> RawResult<String> {
         let mut bytes = Vec::new();
+        let mut bal = 0;
         while let Some(c) = self.peek_byte() {
-            if *c == b' ' {
+            if *c == b' ' && bal == 0 {
                 self.consume_byte();
                 self.skip_spaces();
                 break;
             }
             if *c == b'\n' {
                 break;
+            }
+            if *c == b'(' {
+                bal = bal + 1;
+            }
+            if *c == b')' {
+                bal = bal - 1;
             }
             bytes.push(*c);
             self.consume_byte();
@@ -209,7 +252,11 @@ where
                 self.consume_byte();
                 self.skip_spaces();
                 Ok(())
-            }
+            },
+            Some(b'\0') => {
+                println!("read end of line");
+                Ok(())
+            },
             c => Err(RawError::UnexpectedChar(
                 c.cloned().map(char::from),
                 vec!['\n'],
@@ -243,6 +290,7 @@ where
             if *c == b'\n' {
                 break;
             }
+            //println!("c in sequence:{}", *c as char);
             let item = f(self)?;
             items.push(item);
         }
@@ -284,6 +332,7 @@ where
 
     fn read_ident_internal(&mut self, fresh: bool) -> RawResult<Ident> {
         let word1 = self.read_word()?;
+        //println!("word1:{}", word1);
         match self.read_byte() {
             Some(b'#') => (),
             x => {
@@ -291,6 +340,7 @@ where
             }
         }
         let word2 = self.read_word()?;
+        //println!("word2:{}", word2);
         if word1.is_empty() {
             let id = word2.parse().map_err(RawError::InvalidInteger)?;
             Ok(self.make_ident(None, Some(id), fresh))
@@ -332,10 +382,12 @@ where
     pub(crate) fn read_var_name(&mut self) -> RawResult<VarName> {
         self.read_token(b'(')?;
         let name = self.read_symbol()?;
+        //println!("var name:{}", name);
         match self.peek_byte() {
             Some(b';') => {
                 self.consume_byte();
                 self.skip_spaces();
+                //println!("reach here 2");
                 let sort = self.read_symbol()?;
                 self.read_token(b')')?;
                 Ok(VarName { name, sort })
@@ -346,10 +398,14 @@ where
                 let sort = Symbol("".to_string());
                 Ok(VarName { name, sort })
             }
-            x => Err(RawError::UnexpectedChar(
-                x.cloned().map(char::from),
-                vec![';', ')'],
-            )),
+            x => {
+                println!("symbol:{:?}", name);
+                println!("x:{}", *x.unwrap() as char);
+                Err(RawError::UnexpectedChar(
+                    x.cloned().map(char::from),
+                    vec![';', ')'],
+                ))
+            },
         }
     }
 
